@@ -15,7 +15,7 @@ HEADER = '!HBBHHHH'
 HEADER_SIZE = struct.calcsize(HEADER)
 DOMAIN_PATTERN = re.compile('^[A-Za-z0-9\-\.\_]+$')
 
-INPUTDOMAIN = 'send.reyals.net'
+INPUTDOMAIN = 'send.example.com'   #use your own domian
 
 PORT = 53
 

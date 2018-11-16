@@ -10,7 +10,7 @@ import time
 
 dataqueue= queue.Queue()
 sendqueue= queue.Queue()
-senddns = "send.reyals.net"  #use your own domian
+senddns = "send.example.com"  #use your own domian
 
 
 dnsproviders=["https://dns.google.com/resolve?name=%DOMAIN&type=TXT"#,
