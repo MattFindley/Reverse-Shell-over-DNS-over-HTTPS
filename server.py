@@ -50,10 +50,15 @@ def fromBase32(encoded):
 
 def inputHandler(query):
     data = query.replace(INPUTDOMAIN, "")
-    if data.count(".") == 1: #this isn't from us
-        print("Extra request")
-        return ["ACK"]
     data = data.replace(".", "")
+    if len(data) > 0:
+        try:
+            length = int(data[:3])
+            assert length == len(data)
+            data = data[3:]
+        except: #this isn't from us
+            print("Extra request")
+            return ["KCA"]
     if len(fromBase32(data)) > 0:
         conn.send(fromBase32(data))
     answers = []

