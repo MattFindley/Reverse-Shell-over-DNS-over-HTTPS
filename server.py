@@ -49,7 +49,11 @@ def fromBase32(encoded):
         return b""
 
 def inputHandler(query):
-    data = query.replace(INPUTDOMAIN, "").replace(".", "")
+    data = query.replace(INPUTDOMAIN, "")
+    if data.count(".") == 1: #this isn't from us
+        print("Extra request")
+        return ["ACK"]
+    data = data.replace(".", "")
     if len(fromBase32(data)) > 0:
         conn.send(fromBase32(data))
     answers = []

