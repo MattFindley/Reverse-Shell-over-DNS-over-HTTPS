@@ -58,7 +58,7 @@ def processqueue(inque,outque):
     answer = base64.b32encode(buffer).replace(b"=", b"")  #base 32 encode it and trim any = padding
     answer = (str(len(answer) + 3).zfill(3)).encode() + answer #add the length of the message to start of domains so we can weed out BS queries
     #break the answer up so none of the subdomains are longer then maxlength
-    subdomains = round(len(answer)/maxlength - .5)
+    subdomains = int(len(answer)/maxlength)
     for i in range(1, subdomains + 1):
         answer = answer[0:i*maxlength] + b"." + answer[i*maxlength:]
     return answer.lower()
